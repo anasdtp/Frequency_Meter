@@ -13,7 +13,8 @@ void setup() {
 }
 
 void loop() {
-    freqMeter.oscillatorTestLoop();
+    freqMeter.oscillatorTestLoop();//Tapez sur le moniteur la frequence voulue puis appuyez sur entrée
+
     frequency = freqMeter.getFrequency();
     if (frequency && frequency != old_frequency) {
         old_frequency = frequency;

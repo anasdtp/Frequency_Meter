@@ -157,7 +157,6 @@ void FrequencyMeter::oscillatorTestLoop(){
     inputString += inChar;                                               // Add char to string
     if (inChar == '\n')                                                  // If new line (enter)
     {
-      Serial.println(inputString);
       osc_freq = inputString.toInt();                                    // Converts String into integer value
       inputString = "";                                                  // Clear string
     }
@@ -166,7 +165,7 @@ void FrequencyMeter::oscillatorTestLoop(){
   if (osc_freq != 0)                                                     // If some value inputted to oscillator frequency
   {
     this->setOscFrequence(osc_freq);                                                    // reconfigure ledc function - oscillator 
-    Serial.printf("Setting frequence to %f", osc_freq);
+    Serial.printf("Setting frequence to %d", osc_freq);
     osc_freq = 0;
   }
 }
