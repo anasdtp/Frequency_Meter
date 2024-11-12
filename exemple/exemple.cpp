@@ -7,6 +7,9 @@ float frequency = 0, old_frequency = 0;
 void setup() {
     Serial.begin(921600);
     freqMeter.initFrequencyMeter();
+
+    freqMeter.setOscFrequence(1234);
+    Serial.println("\nFrequency Meter Initialized");
 }
 
 void loop() {

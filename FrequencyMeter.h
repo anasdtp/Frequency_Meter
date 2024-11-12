@@ -62,7 +62,7 @@ A flag is set on to indicating that the pulse reading has ended.
 In the loop, when verifying if the flag is on indicates that the pulse reading has finished, the value is calculated by multiplying
 the number of overflow by 20000 and adding to the number of remaining pulses and dividing by 2, because it counted 2 times.
 
-As the pulses are counted on the way up and down, the count is double the frequency.
+As the pulses are counted on the way up and down, the count is reel the frequency.
 In the frequency value, commas are inserted and printed on the serial monitor.
 The registers are reset and the input control port is set to a high level again and the pulse count starts.
 
@@ -83,48 +83,54 @@ so the LED will flash at the input frequency.*/
 #define LEDC_HS_CH0_GPIO      GPIO_NUM_33                                 // Saida do LEDC - gerador de pulsos - GPIO_33
 #define PCNT_INPUT_CTRL_IO    GPIO_NUM_35                                 // Set Pulse Counter Control GPIO pin - HIGH = count up, LOW = count down  
 #define OUTPUT_CONTROL_GPIO   GPIO_NUM_32                                 // Timer output control port - GPIO_32
-#define PCNT_H_LIM_VAL        overflow                                    // Overflow of Pulse Counter 
 
 // #define IN_BOARD_LED          GPIO_NUM_2                                  // ESP32 native LED - GPIO 2
 
 void set_gpio_if_needed(gpio_num_t gpio_num, uint32_t level);
 
+typedef double reel;
+
 class FrequencyMeter
 {
 public:
-    FrequencyMeter(uint32_t _sample_time = 1000000, uint32_t _overflow = 20000);
+    //Choisissez des valeurs de sample_time_us en faisant en sorte que le calcul factor = ((1 000 000)/sample_time_us)/2  donne un resultat rond
+    FrequencyMeter(uint32_t sample_time_us = 1000000, uint32_t count_overflow = 20000);
     ~FrequencyMeter();
 
     void initFrequencyMeter ();
     void setOscFrequence (uint32_t freq);// Oscillator frequency (may be 1 Hz to 40 MHz)
 
     void oscillatorTestLoop();
-    float getFrequency();
+    reel getFrequency();
 
     static FrequencyMeter* instance;  // Pointer to the current instance
-    static void IRAM_ATTR pcnt_intr_handler(void *arg);
-    static void read_PCNT(void *p);
+    static void IRAM_ATTR pcntOverflowHandler(void *arg);
+    static void readPCNT(void *p);
+
+    double getFrequencyFactor() {
+        return frequency_factor;
+    }
     
 private:
     bool            flag          ;                                        // Flag to enable print frequency reading
     uint32_t        overflow      ;                                       // Max Pulse Counter value
     int16_t         pulses        ;                                      // Pulse Counter value
-    uint32_t        multPulses    ;                                     // Quantidade de overflows do contador PCNT
-    uint32_t        sample_time   ;                                    // sample time of 1 second to count pulses                                  
-    uint32_t        mDuty         ;                                   // Duty value
+    uint32_t        mult_pulses    ;                                     // Quantidade de overflows do contador PCNT
+    uint32_t        sample_time   ;                                    // sample time in us to count pulses                                  
+    uint32_t        m_duty         ;                                   // Duty value
     uint32_t        resolution    ;                                  // Resolution value
-    float           frequency;                                      // frequency value
-    float           frequency_factor     ;                         // frequency factor = (1e6 / sample_time) / 2.0
+    reel            frequency;                                      // frequency value
+    reel            frequency_factor     ;                         // frequency factor = (1e6 / sample_time) / 2.0
                                                                 
     esp_timer_create_args_t create_args;                         // Create an esp_timer instance
     esp_timer_handle_t timer_handle;                            // Create an single timer
 
-    portMUX_TYPE timerMux         ;                           // portMUX_TYPE to do synchronism
+    portMUX_TYPE timer_mux         ;                           // portMUX_TYPE to do synchronism
 
     ledc_timer_config_t ledc_timer = {};                    // LEDC timer config instance
     ledc_channel_config_t ledc_channel = {};               // LEDC Channel config instance
 
-    void init_PCNT(void) ;
+    void initPCNT(void) ;
 };
 
 
