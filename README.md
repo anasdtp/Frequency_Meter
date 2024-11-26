@@ -1,3 +1,7 @@
+ESP32 frequency Meter
+
+One of the best Frequency Meter ever made with ESP32
+
 ![image](https://github.com/user-attachments/assets/d703052e-a7c2-4ab2-a0f2-f2d6a9162136)
 
 
