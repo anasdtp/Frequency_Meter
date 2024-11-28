@@ -129,19 +129,17 @@ void IRAM_ATTR FrequencyMeter::pcntOverflowHandler(void *arg)
 reel FrequencyMeter::getFrequency(){
   if(!this->flag){return 0.;}
   this->flag = false;                                                       // change flag to disable print
+
+  pcnt_counter_clear(PCNT_COUNT_UNIT);                                // Clear Pulse Counter
+  esp_timer_start_once(timer_handle, sample_time);                    // Initialize High resolution timer 
+  set_gpio_if_needed(OUTPUT_CONTROL_GPIO, 1);                         // Set enable PCNT count
+
   // frequency = ((pulses + (mult_pulses * overflow)) / 2.0)* 1e6/sample_time  ; // Calculation of frequency
   // Calcul optimisé sans opération flottante intermédiaire :
   this->frequency = (reel)(this->pulses + (this->mult_pulses * this->overflow)) * this->frequency_factor;
   // printf("Frequency : %f Hz \n", frequency);               // Print frequency 
 
   this->mult_pulses = 0;                                                     // Clear overflow counter
-  // Put your function here, if you want
-  // delay (10);                                                        // Delay 100 ms
-  // Put your function here, if you want
-
-  pcnt_counter_clear(PCNT_COUNT_UNIT);                                // Clear Pulse Counter
-  esp_timer_start_once(timer_handle, sample_time);                    // Initialize High resolution timer 
-  set_gpio_if_needed(OUTPUT_CONTROL_GPIO, 1);                         // Set enable PCNT count
 
   return this->frequency;
 }
