@@ -1,3 +1,5 @@
+#ifndef FREQUENCYMETER_H
+#define FREQUENCYMETER_H
 #include <Arduino.h>
 #include "stdio.h"                                                        // Library STDIO
 #include "driver/ledc.h"                                                  // Library ESP32 LEDC
@@ -88,7 +90,7 @@ so the LED will flash at the input frequency.*/
 
 void set_gpio_if_needed(gpio_num_t gpio_num, uint32_t level);
 
-typedef double reel;
+typedef float reel;
 
 class FrequencyMeter
 {
@@ -134,3 +136,5 @@ private:
 };
 
 
+
+#endif // FREQUENCYMETER_H
