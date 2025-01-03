@@ -14,7 +14,7 @@
             "url": "https://github.com/anasdtp/"
         }
     ],
-    "license": "IDK",
+    "license": "MIT",
     "homepage": "https://github.com/anasdtp/",
     "dependencies": {},
     "frameworks": "*",
