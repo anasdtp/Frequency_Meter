@@ -99,6 +99,8 @@ public:
     FrequencyMeter(uint32_t sample_time_us = 1000000, uint32_t count_overflow = 20000);
     ~FrequencyMeter();
 
+    void changeSampleTime(uint32_t sample_time_us);
+
     void initFrequencyMeter ();
     void setOscFrequence (uint32_t freq);// Oscillator frequency (may be 1 Hz to 40 MHz)
 
