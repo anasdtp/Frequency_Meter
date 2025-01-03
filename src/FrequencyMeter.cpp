@@ -47,22 +47,28 @@ FrequencyMeter::~FrequencyMeter()
 void FrequencyMeter::setOscFrequence (uint32_t freq)
 {
   static uint32_t last_osc_freq = 0;
-  static reel res_factor = 1./(2. * log(2.)), log_80000000 = log(80000000);  // Factor to calculate resolution
+  static float res_factor = 1./(2. * log(2.)), log_80000000 = log(80000000);  // Factor to calculate resolution
 
   if (freq == last_osc_freq) {return;}
-
-  this->resolution = (log_80000000 - log(freq)) * res_factor;  // Calculer uniquement si freq change
-  if (this->resolution < 1){ this->resolution = 1;}
-  this->m_duty = (1 << this->resolution) / 2;  // Utilise un décalage pour éviter `pow`, équivalent à `pow(2, resolution)`
-
+  else if(freq == 0){//If freq is 0, stop the LEDC channel
+    last_osc_freq = freq;  // Mise à jour de la dernière fréquence
+    ledc_stop(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);  // Stop the LEDC channel
+    return;
+  }
   last_osc_freq = freq;  // Mise à jour de la dernière fréquence
-  
-  this->ledc_timer.duty_resolution =  ledc_timer_bit_t(this->resolution);             // Set resolution
-  this->ledc_timer.freq_hz    = freq;                                       // Set Oscillator frequency
-  ledc_timer_config(&this->ledc_timer);                                         // Set LEDC Timer config
 
-  this->ledc_channel.duty       = this->m_duty;                                        // Set Duty Cycle 50%
-  ledc_channel_config(&this->ledc_channel);                                     // Config LEDC channel
+
+  this->resolution = (log_80000000 - logf(freq)) * res_factor;  // Calculer uniquement si freq change
+  if (this->resolution < 1){ this->resolution = 1;}
+  this->m_duty = (1 << this->resolution) >> 1;  // Utilise un décalage pour éviter `pow`, équivalent à `pow(2, resolution)` et un autre pour /2
+
+  
+  this->ledc_timer.duty_resolution = ledc_timer_bit_t(this->resolution);         // Set resolution
+  this->ledc_timer.freq_hz         = freq;                                      // Set Oscillator frequency
+  ledc_timer_config(&this->ledc_timer);                                        // Set LEDC Timer config
+
+  this->ledc_channel.duty          = this->m_duty;                           // Set Duty Cycle 50%
+  ledc_channel_config(&this->ledc_channel);                                 // Config LEDC channel
 }
 
 void FrequencyMeter::initFrequencyMeter()
