@@ -1,6 +1,6 @@
 {
     "name": "FrequencyMeter",
-    "version": "2.0.5",
+    "version": "2.0.6",
     "description": "A library to measure frequency of signals with an esp32",
     "keywords": "frequency, meter, signal, esp32",
     "repository": {
