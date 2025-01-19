@@ -139,6 +139,9 @@ public:
      */
     void initFrequencyMeter (bool count_on_falling_edges = true);
 
+
+    void startCounting(pcnt_unit_t pcnt_unit_num, esp_timer_handle_t timer, uint64_t timeout_us, gpio_num_t gpio_num);
+
     /** @brief Gets the frequency value.
      * 
      * This function returns the frequency value in Hz.
@@ -147,7 +150,23 @@ public:
      */
     reel getFrequency();
 
-    void changeSampleTime(uint32_t sample_time_us);
+    /** @brief Gets the frequency value on the front.
+     * 
+     * This function returns the frequency value in Hz.
+     * 
+     * @return The frequency value in Hz. Return 0 if the frequency is not available yet.
+     */
+    reel getFrequencyOnFront();
+
+    /** @brief Gets the pulses value.
+     * 
+     * This function returns the raw value of the counter.
+     * 
+     * @return Return 0 if the pulses is not available yet.
+     */
+    uint32_t getPulses();
+
+    void setSampleTime(uint32_t sample_time_us);
     
 
     /**
@@ -169,46 +188,61 @@ public:
 
     void oscillatorTestLoop();
 
+    bool getFlag(bool afterCheck = false) {
+        if(this->flag) {
+            this->flag = afterCheck;
+            return true;
+        }
+        return this->flag;
+    }
 
-    double getFrequencyFactor() {
+    reel getFrequencyFactor() {
         return frequency_factor;
     }
-    
+
+    uint32_t getSampleTime() {
+        return this->sample_time;
+    }
+protected:
+    pcnt_unit_t         pcnt_unit;                            // PCNT unit instance
+    esp_timer_handle_t timer_handle;                            // Create an single timer
+    gpio_num_t          gpio_output_control;                  // Output control GPIO pin - To enable/disable counting, output connected to gpio_pcnt_ctrl
+    gpio_num_t          gpio_pcnt_input;                        // Pulse Counter input GPIO pin - Frequence input
+    gpio_num_t          gpio_pcnt_ctrl;                        // Pulse Counter control GPIO pin - To enable/disable counting, input
+    gpio_num_t          gpio_ledc_output;                    // LEDC output GPIO pin - Oscillator output
+
+    uint32_t            overflow        ;                                      // Max Pulse Counter value
+    uint32_t            mult_pulses     ;                                     // Quantidade de overflows do contador PCNT
+    int16_t             pulses          ;                                 // Pulse Counter value  
 private:
     pcnt_config_t pcnt_config = { };                               // PCNT unit instance
 
     esp_timer_create_args_t create_args;                         // Create an esp_timer instance
-    esp_timer_handle_t timer_handle;                            // Create an single timer
 
     portMUX_TYPE timer_mux         ;                           // portMUX_TYPE to do synchronism
 
     ledc_timer_config_t ledc_timer = {};                    // LEDC timer config instance
     ledc_channel_config_t ledc_channel = {};               // LEDC Channel config instance
 
-    reel                frequency;                                      // frequency value
-    reel                frequency_factor     ;                         // frequency factor = (1e6 / sample_time) / 2.0
-
-    gpio_num_t          gpio_pcnt_input;                        // Pulse Counter input GPIO pin - Frequence input
-    gpio_num_t          gpio_pcnt_ctrl;                        // Pulse Counter control GPIO pin - To enable/disable counting, input
-    gpio_num_t          gpio_output_control;                  // Output control GPIO pin - To enable/disable counting, output connected to gpio_pcnt_ctrl
-    gpio_num_t          gpio_ledc_output;                    // LEDC output GPIO pin - Oscillator output
-    pcnt_unit_t         pcnt_unit;                            // PCNT unit instance
     pcnt_channel_t      pcnt_channel;                         // PCNT channel instance
 
-    uint32_t            overflow      ;                                       // Max Pulse Counter value
-    uint32_t            mult_pulses    ;                                     // Quantidade de overflows do contador PCNT
-    uint32_t            sample_time   ;                                    // sample time in us to count pulses                                  
-    uint32_t            m_duty         ;                                   // Duty value
-    uint32_t            resolution    ;                                  // Resolution value
-    int16_t             pulses        ;                                      // Pulse Counter value
+    reel                frequency_factor     ;                         // frequency factor = (1e6 / sample_time) / 2.0
     
-    bool                flag          ;                                        // Flag to enable print frequency reading
+    reel                res_factor, log_80000000;  // Factor to calculate resolution for the oscillator
 
-    static FrequencyMeter* instance;  // Pointer to the current instance
-    static void IRAM_ATTR pcntOverflowHandler(void *arg);
-    static void readPCNT(void *p);
+    uint32_t            sample_time     ;                                    // sample time in us to count pulses                                  
+    uint32_t            m_duty          ;                                   // Duty value
+    uint32_t            resolution      ;                                  // Resolution value
+
+    uint32_t            last_osc_freq   ;                                 // Last oscillator frequency
+    
+    uint8_t             on_front_state; // State machine for getFrequencyOnFront function
+    bool                on_front_old_digitalRead; // Digital read value for getFrequencyOnFront function
+
+    bool                flag   ;                               // Flag to enable print frequency reading
+
+    void IRAM_ATTR pcntOverflowHandler(void *arg);
+    void readPCNT(void *arg);
 };
-
-
 
 #endif // FREQUENCYMETER_H

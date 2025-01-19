@@ -11,12 +11,9 @@ void set_gpio_if_needed(gpio_num_t gpio_num, uint32_t level) {
 
 //----------------------------------------------------------------------------
 
-FrequencyMeter* FrequencyMeter::instance = nullptr;  // Initialize the static instance pointer
 
 FrequencyMeter::FrequencyMeter(uint32_t sample_time_us, uint32_t count_overflow, gpio_num_t GPIO_FREQUENCE_INPUT, gpio_num_t GPIO_COUNT_CONTROL_INPUT, gpio_num_t GPIO_COUNT_CONTROL_OUTPUT, pcnt_unit_t PCNT_UNIT, pcnt_channel_t PCNT_CHANNEL)
 {
-  instance = this;                                                            // Set the instance pointer to the current object
-
   this->gpio_pcnt_input = GPIO_FREQUENCE_INPUT;                          // Pulse Counter input GPIO pin - Frequence input
   this->gpio_output_control = GPIO_COUNT_CONTROL_OUTPUT;                // Output control GPIO pin - To enable/disable counting, output connected to gpio_pcnt_ctrl
   this->gpio_pcnt_ctrl = GPIO_COUNT_CONTROL_INPUT;                     // Control signal input GPIO pin - To enable/disable counting, input
@@ -25,22 +22,26 @@ FrequencyMeter::FrequencyMeter(uint32_t sample_time_us, uint32_t count_overflow,
   this->pcnt_channel = PCNT_CHANNEL;                                // PCNT channel instance
 
   
-  this->flag = true;                                                         // Flag to enable print frequency reading
+  this->flag = true;                                                // Flag to enable print frequency reading, must be at true at firt to start the counter
   this->overflow = count_overflow;                                          // Max Pulse Counter - initial : 20000
   this->pulses = 0;                                                        // Pulse Counter value
   this->mult_pulses = 0;                                                   // Quantidade de overflows do contador PCNT
   this->sample_time = sample_time_us;                                    // sample time in us to count pulses, can be changed - initial : 1000000
   this->m_duty = 0;                                                      // Duty value
   this->resolution = 0;                                                // Resolution value
-  this->frequency = 0;                                                // frequency value
   this->frequency_factor = ((1./sample_time) * 1e6) / 2.0;           // divided by 2 if the counter increase on falling edge                         
 
   this->timer_mux = portMUX_INITIALIZER_UNLOCKED;                   // portMUX_TYPE to do synchronism
+
+  this->on_front_state = 0;
+  this->on_front_old_digitalRead = false;
+
+  res_factor = 1./(2. * log(2.)); 
+  log_80000000 = log(80000000);  // Factor to calculate resolution
 }
 
 FrequencyMeter::~FrequencyMeter()
 {
-  instance = nullptr;  // Set the instance pointer to null
 }
 
 
@@ -65,7 +66,13 @@ void FrequencyMeter::initPCNT(gpio_num_t gpio_input, gpio_num_t gpio_ctrl, pcnt_
   pcnt_counter_pause(unit);                                          // Met en pause le compteur
   pcnt_counter_clear(unit);                                          // Réinitialise le compteur
   pcnt_event_enable(unit, PCNT_EVT_H_LIM);                           // Active l'événement de limite haute
-  pcnt_isr_register(FrequencyMeter::pcntOverflowHandler, NULL, 0, NULL);  // Enregistre l'ISR pour gérer le débordement
+
+  pcnt_isr_register(
+    [](void *arg) {  // Lambda statique comme wrapper
+      static_cast<FrequencyMeter*>(arg)->pcntOverflowHandler(arg);
+    }
+  , this, 0, NULL);  // Enregistre l'ISR pour gérer le débordement
+  
   pcnt_intr_enable(unit);                                            // Active les interruptions pour l'unité PCNT
   pcnt_counter_resume(unit);                                         // Reprend le comptage des impulsions
 
@@ -88,7 +95,10 @@ void FrequencyMeter::initFrequencyMeter(bool count_on_falling_edges)
 
   gpio_pad_select_gpio(this->gpio_output_control);                 // Set GPIO pad
   gpio_set_direction(this->gpio_output_control, GPIO_MODE_OUTPUT); // Set GPIO 32 as output
-  create_args.callback = FrequencyMeter::readPCNT;              // Set esp-timer argument
+  create_args.callback = [](void *arg) {  // Lambda statique comme wrapper
+      static_cast<FrequencyMeter*>(arg)->readPCNT(arg);
+  };
+  create_args.arg = this;                                       // Set esp-timer argument 
   esp_timer_create(&create_args, &timer_handle); // Create esp-timer instance
 
   // gpio_set_direction(IN_BOARD_LED, GPIO_MODE_OUTPUT); // Set LED inboard as output
@@ -97,8 +107,9 @@ void FrequencyMeter::initFrequencyMeter(bool count_on_falling_edges)
   // gpio_matrix_out(IN_BOARD_LED, SIG_IN_FUNC226_IDX, false, false); // Set GPIO matrix OUT - to inboard LED
 }
 
-void FrequencyMeter::readPCNT(void *p)
+void FrequencyMeter::readPCNT(void *arg)
 {
+  FrequencyMeter* instance = static_cast<FrequencyMeter*>(arg); // Récupère l'instance via le pointeur utilisateur
   if(instance != nullptr) {
     set_gpio_if_needed(instance->gpio_output_control, 0);                                        // Stop counter - output control LOW
     pcnt_get_counter_value(instance->pcnt_unit, &instance->pulses);                       // Read Pulse Counter value
@@ -108,6 +119,7 @@ void FrequencyMeter::readPCNT(void *p)
 
 void IRAM_ATTR FrequencyMeter::pcntOverflowHandler(void *arg)
 {
+  FrequencyMeter* instance = static_cast<FrequencyMeter*>(arg); // Récupère l'instance via le pointeur utilisateur
   if(instance != nullptr) {
     portENTER_CRITICAL_ISR(&instance->timer_mux);                                      // disabling the interrupts
     instance->mult_pulses++;                                                          // increment Overflow counter
@@ -116,32 +128,78 @@ void IRAM_ATTR FrequencyMeter::pcntOverflowHandler(void *arg)
   }
 }
 
-reel FrequencyMeter::getFrequency(){
-  if(!this->flag){return 0.;}
-  this->flag = false;                                                       // change flag to disable print
+void FrequencyMeter::startCounting(pcnt_unit_t pcnt_unit_num, esp_timer_handle_t timer, uint64_t timeout_us, gpio_num_t gpio_num) {
+  pcnt_counter_clear(pcnt_unit_num);                                // Clear Pulse Counter
+  esp_timer_start_once(timer, timeout_us);                         // Initialize High resolution timer 
+  set_gpio_if_needed(gpio_num, 1);                                // Set enable PCNT count
+}
 
-  pcnt_counter_clear(instance->pcnt_unit);                                // Clear Pulse Counter
-  esp_timer_start_once(timer_handle, sample_time);                    // Initialize High resolution timer 
-  set_gpio_if_needed(instance->gpio_output_control, 1);                         // Set enable PCNT count
+reel FrequencyMeter::getFrequency(){
+  if(!this->getFlag(false)){return 0.;}
 
   // frequency = ((pulses + (mult_pulses * overflow)) / 2.0)* 1e6/sample_time  ; // Calculation of frequency
   // Calcul optimisé sans opération flottante intermédiaire :
-  this->frequency = (reel)(this->pulses + (this->mult_pulses * this->overflow)) * this->frequency_factor;
+  reel frequency = (reel)(this->pulses + (this->mult_pulses * this->overflow)) * this->frequency_factor;
   // printf("Frequency : %f Hz \n", frequency);               // Print frequency 
 
   this->mult_pulses = 0;                                                     // Clear overflow counter
 
-  return this->frequency;
+  this->startCounting(this->pcnt_unit, this->timer_handle, this->sample_time, this->gpio_output_control);                    // Initialize High resolution timer
+
+  return frequency;
 }
 
-void FrequencyMeter::changeSampleTime(uint32_t sample_time_us)
+
+reel FrequencyMeter::getFrequencyOnFront(){
+  switch (on_front_state)
+  {
+  case 0:{
+        if(on_front_old_digitalRead != digitalRead(this->gpio_pcnt_input)){
+          this->getFlag(false);
+          this->startCounting(this->pcnt_unit, this->timer_handle, this->getSampleTime(), this->gpio_output_control);
+          on_front_state = 1;
+        }
+  }break;
+  case 1:{
+        if(this->getFlag(false)){
+          // Calcul optimisé sans opération flottante intermédiaire :
+          reel frequency = (reel)(this->pulses + (this->mult_pulses * this->overflow)) * this->getFrequencyFactor();
+          this->mult_pulses = 0;                                                     // Clear overflow counter
+          
+          on_front_state = 0;
+          on_front_old_digitalRead = digitalRead(this->gpio_pcnt_input);
+          return frequency;
+        }
+  }break;
+  default:
+    break;
+  }
+  return 0.f;
+}
+
+uint32_t FrequencyMeter::getPulses(){
+  if(!this->getFlag()){return 0u;}
+
+  // frequency = ((pulses + (mult_pulses * overflow)) / 2.0)* 1e6/sample_time  ; // Calculation of frequency
+  // Calcul optimisé sans opération flottante intermédiaire :
+  uint32_t pulses = (uint32_t)(this->pulses + (this->mult_pulses * this->overflow));
+  // printf("Frequency : %f Hz \n", frequency);               // Print frequency 
+
+  this->mult_pulses = 0;                                                     // Clear overflow counter
+
+  this->startCounting(this->pcnt_unit, this->timer_handle, this->sample_time, this->gpio_output_control);                    // Initialize High resolution timer
+
+  return pulses;
+}
+
+void FrequencyMeter::setSampleTime(uint32_t sample_time_us)
 {
   this->sample_time = sample_time_us;  // Change the sample time
-  this->frequency_factor = ((1./this->sample_time) * 1e6);// Change the frequency factor
+  this->frequency_factor = (reel)(((1./this->sample_time) * 1e6));// Change the frequency factor
 
   if((pcnt_config.pos_mode == PCNT_COUNT_INC) && (pcnt_config.neg_mode == PCNT_COUNT_INC))// If count on both edges
   {  
-    this->frequency_factor /= 2.0; //Then divide by 2.0 to get the correct frequency
+    this->frequency_factor /= (reel)(2.0); //Then divide by 2.0 to get the correct frequency
   }
   // else if((pcnt_config.pos_mode == PCNT_COUNT_INC) && (pcnt_config.neg_mode == PCNT_COUNT_DIS))
   // {
@@ -154,7 +212,7 @@ void FrequencyMeter::changeSampleTime(uint32_t sample_time_us)
 void FrequencyMeter::initOscillator(gpio_num_t output_pin, ledc_timer_t timer_num, ledc_channel_t channel)
 {
   this->gpio_ledc_output = output_pin;                     // Set the GPIO pin for the oscillator output
-  if(this->gpio_ledc_output){
+  if(this->gpio_ledc_output != GPIO_NUM_NC) {              // If the GPIO pin is valid
     // Configure the LEDC timer
     this->ledc_timer.speed_mode = LEDC_HIGH_SPEED_MODE; // Set speed mode (high or low speed)
     this->ledc_timer.timer_num = timer_num;  // Set the timer to use
@@ -165,14 +223,14 @@ void FrequencyMeter::initOscillator(gpio_num_t output_pin, ledc_timer_t timer_nu
     this->ledc_channel.intr_type = LEDC_INTR_DISABLE;   // Set the interrupt type (disabled by default)
     this->ledc_channel.speed_mode = LEDC_HIGH_SPEED_MODE; // Set the speed mode for the channel
     this->ledc_channel.timer_sel = timer_num;   // Link the channel to the specified timer
+
+    res_factor = 1./(2. * log(2.)); 
+    log_80000000 = log(80000000);  // Factor to calculate resolution
   }
 }
 
 void FrequencyMeter::setOscFrequence (uint32_t freq)
 {
-  static uint32_t last_osc_freq = 0;
-  static reel res_factor = 1./(2. * log(2.)), log_80000000 = log(80000000);  // Factor to calculate resolution
-
   if ((freq == last_osc_freq) || (this->gpio_ledc_output == GPIO_NUM_NC)) {return;}
   else if(freq == 0){//If freq is 0, stop the LEDC channel
     last_osc_freq = freq;  // Mise à jour de la dernière fréquence
@@ -213,7 +271,7 @@ void FrequencyMeter::oscillatorTestLoop(){
   if (osc_freq != 0)                                                     // If some value inputted to oscillator frequency
   {
     this->setOscFrequence(osc_freq);                                                    // reconfigure ledc function - oscillator 
-    Serial.printf("Setting frequence to %d", osc_freq);
+    Serial.printf("Setting frequence to %d\n", osc_freq);
     osc_freq = 0;
   }
 }
